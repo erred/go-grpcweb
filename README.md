@@ -45,6 +45,7 @@ func main(){
 - [ ] Cleanup header parsing / constants
 - [ ] Write tests
 - [ ] Write better docs
+- [ ] investigate closing http2 streams
 
 ## Links
 

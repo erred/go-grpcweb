@@ -42,11 +42,11 @@ func main(){
 
 ## Todo
 
-- [ ] Improve error handling
-- [ ] Cleanup header parsing / constants
 - [ ] Write tests
 - [ ] Write better docs
+- [ ] Improve error handling
 - [ ] investigate closing http2 streams
+- [x] Cleanup header parsing / constants
 
 ## Links
 

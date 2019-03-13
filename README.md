@@ -42,6 +42,7 @@ func main(){
 
 ## Todo
 
+- [ ] Cleanup header parsing / constants
 - [ ] Write tests
 - [ ] Write better docs
 

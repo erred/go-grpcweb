@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	// "github.com/containous/traefik/middlewares"
 )
 
 const (
@@ -18,7 +17,6 @@ const (
 	ctGRPCWebText = "application/grpc-web-text"
 
 	trailerFrame = 1 << 7 // uncompressed
-	// trailerFrameCompressed = trailerFrame + 1
 )
 
 // ========================= utility

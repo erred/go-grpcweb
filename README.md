@@ -8,7 +8,7 @@ grpc-web handler for go
 
 ## About
 
-I wanted to work with groc-web without having to run (another) proxy
+I wanted to work with grpc-web without having to run (another) proxy (envoy)
 
 ## Usage
 
@@ -42,6 +42,7 @@ func main(){
 
 ## Todo
 
+- [ ] Improve error handling
 - [ ] Cleanup header parsing / constants
 - [ ] Write tests
 - [ ] Write better docs

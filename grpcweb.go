@@ -10,24 +10,19 @@ import (
 )
 
 const (
-	// content types
-	ctHeader      = "content-type"
+	// header names
+	hAccept        = "accept"
+	hContentLength = "content-length"
+	hContentType   = "content-type"
+	hTE            = "te"
+	hTrailer       = "trailer"
+	// content-type s
 	ctGRPC        = "application/grpc"
 	ctGRPCWeb     = "application/grpc-web"
 	ctGRPCWebText = "application/grpc-web-text"
-
-	trailerFrame = 1 << 7 // uncompressed
+	// te: trailers
+	teTrailers = "trailers"
 )
-
-// ========================= utility
-
-func isGRPCWebRequest(req *http.Request) bool {
-	return strings.HasPrefix(req.Header.Get("content-type"), "application/grpc-web")
-}
-
-func isGRPCWebTextRequest(req *http.Request) bool {
-	return strings.HasPrefix(req.Header.Get(ctHeader), ctGRPCWebText)
-}
 
 // ========================== server / wrapper
 
@@ -43,12 +38,11 @@ func New(next http.Handler) http.Handler {
 
 // ServeHTTP implements http.Handler
 func (g *grpcWeb) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	var finisher func()
-	if isGRPCWebRequest(req) {
+	var writeTrailers func()
+	if strings.HasPrefix(req.Header.Get(hContentType), ctGRPCWeb) {
 		modifyRequest(req)
-		rw, finisher = newResponseWriter(rw, req.Header.Get("accept"))
-		// _ = finisher
-		defer finisher()
+		rw, writeTrailers = newResponseWriter(rw, req.Header.Get(hAccept))
+		defer writeTrailers()
 	}
 	g.next.ServeHTTP(rw, req)
 }
@@ -56,19 +50,23 @@ func (g *grpcWeb) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 // ======================== request modifier
 
 // modifyRequest transforms a grpc-web request to a grpc request
+// TODO: check if still works when client side streaming is available
 func modifyRequest(req *http.Request) {
 	// force -> http2
 	req.ProtoMajor = 2
 	req.ProtoMinor = 0
 
-	if isGRPCWebTextRequest(req) {
-		// TODO: check if still works when client side streaming is available
+	ct := req.Header.Get(hContentType)
+	ctp := ctGRPCWeb
+
+	if strings.HasPrefix(ct, ctGRPCWebText) {
 		req.Body = readCloser{base64.NewDecoder(base64.StdEncoding, req.Body), req.Body}
+		ctp = ctGRPCWebText
 	}
 
-	req.Header.Del("content-length")
-	req.Header.Set("content-type", ctGRPC)
-	req.Header.Set("te", "trailers")
+	req.Header.Del(hContentLength)
+	req.Header.Set(hContentType, strings.Replace(ct, ctp, ctGRPC, 1))
+	req.Header.Set(hTE, teTrailers)
 	return
 }
 
@@ -87,7 +85,6 @@ type responseWriter struct {
 	http.ResponseWriter
 	header        http.Header
 	headerWritten bool
-	bodyWritten   bool
 	text          bool
 
 	// base64 encoder buffer
@@ -95,28 +92,27 @@ type responseWriter struct {
 }
 
 // newResponseWriter creates a new responseWriter
-// response encoding is decided by accept (request header)
 func newResponseWriter(rw http.ResponseWriter, accept string) (r *responseWriter, writeTrailers func()) {
 	r = &responseWriter{
 		ResponseWriter: rw,
 		header:         make(http.Header),
-	}
-	if strings.HasPrefix(accept, ctGRPCWebText) {
-		r.text = true
+		text:           strings.HasPrefix(accept, ctGRPCWebText),
 	}
 	return r, r.writeTrailers
 }
 
 // prepareHeaders syncs (internal) headers into the ResponseWriter
 func (r *responseWriter) prepareHeaders() {
+	r.headerWritten = true
 	for k, v := range r.header {
 		k := strings.ToLower(k)
-		if k == ctHeader {
+		if k == hContentType {
+			ct := ctGRPCWeb
 			if r.text {
-				v = []string{ctGRPCWebText}
-			} else {
-				v = []string{ctGRPCWeb}
+				ct = ctGRPCWebText
 			}
+			r.ResponseWriter.Header().Set(k, strings.Replace(r.header.Get(k), ctGRPC, ct, 1))
+			continue
 		}
 		if strings.HasPrefix(k, strings.ToLower(http.TrailerPrefix)) {
 			k = strings.TrimPrefix(k, http.TrailerPrefix)
@@ -125,7 +121,6 @@ func (r *responseWriter) prepareHeaders() {
 			r.ResponseWriter.Header().Add(k, vv)
 		}
 	}
-	r.headerWritten = true
 }
 
 // WriteHeader implements http.ResponseWriter
@@ -139,7 +134,6 @@ func (r *responseWriter) WriteHeader(statusCode int) {
 // encodes in base64 if necessary
 // has internal buffer
 func (r *responseWriter) Write(p []byte) (int, error) {
-	r.bodyWritten = true
 	if !r.headerWritten {
 		r.prepareHeaders()
 	}
@@ -155,14 +149,12 @@ func (r *responseWriter) Write(p []byte) (int, error) {
 // encodeBase64 reads the internal write buffer,
 // decodes into grpc frames (unrelated to http2 frames)
 // returns base64 encoded representation, separated by \r\n
+// TODO: figure out if there are any unsupported flags
 func (r *responseWriter) encodeBase64() []byte {
-	var l uint32
 	buf := &bytes.Buffer{}
-	for len(r.buf) > 5 { // min frame size
-		// TODO check for unsupported flags
-		binary.Read(bytes.NewBuffer(r.buf[1:5]), binary.BigEndian, &l)
-		frameLen := int(l) + 5
-		if len(r.buf) < 5 {
+	for len(r.buf) >= 5 { // min frame size
+		frameLen := int(binary.BigEndian.Uint32(r.buf[1:5])) + 5
+		if len(r.buf) < frameLen {
 			break // not enough data, wait for buffer
 		}
 		enc := base64.NewEncoder(base64.StdEncoding, buf)
@@ -174,41 +166,31 @@ func (r *responseWriter) encodeBase64() []byte {
 }
 
 // writeTrailers writes any trailers at the end of a response
-// must be called
+// or in the headers if there is no body
+// TODO: close http2 conns (or is this the reponsibility of the wrapped handler?)
 func (r *responseWriter) writeTrailers() {
-	if r.headerWritten || r.bodyWritten {
+	if r.headerWritten {
 		// extract unwritten trailers from header
-		buf := &bytes.Buffer{}
-		skip := map[string]bool{"trailer": true}
+		skip := map[string]bool{hTrailer: true}
 		for k := range r.ResponseWriter.Header() {
 			skip[strings.ToLower(k)] = true
 		}
+		buf := bytes.NewBuffer([]byte{1 << 7, 0, 0, 0, 0}) // traler frame header
 		r.header.WriteSubset(buf, skip)
 
-		// trailerDataFrameHeader := []byte{0, 0, 0, 0, 0}
-		trailerDataFrameHeader := []byte{1 << 7, 0, 0, 0, 0}
-		binary.BigEndian.PutUint32(trailerDataFrameHeader[1:5], uint32(buf.Len()))
-		r.buf = append(trailerDataFrameHeader, buf.Bytes()...)
+		r.buf = buf.Bytes()
+		binary.BigEndian.PutUint32(r.buf[1:5], uint32(len(r.buf)-5))
 		r.ResponseWriter.Write(r.encodeBase64())
-		// r.ResponseWriter.Write(trailerDataFrameHeader)
-		// r.ResponseWriter.Write(buf.Bytes())
 	} else {
+		// trailers included in header
 		r.WriteHeader(http.StatusOK)
 	}
 	r.Flush()
 }
 
 // Flush implements http.Flusher
-// safe to call at any time
-// must call to ensure writes happen
 func (r *responseWriter) Flush() {
-	if r.headerWritten || r.bodyWritten {
-		if r.text {
-			r.ResponseWriter.Write(r.encodeBase64())
-			// internal buffer should be empty
-		}
-		r.ResponseWriter.(http.Flusher).Flush()
-	}
+	r.ResponseWriter.(http.Flusher).Flush()
 }
 
 // CloseNotify implements http.CloseNotifier
@@ -217,4 +199,6 @@ func (r *responseWriter) CloseNotify() <-chan bool {
 }
 
 // Header implements http.ResponseWriter
-func (r *responseWriter) Header() http.Header { return r.header }
+func (r *responseWriter) Header() http.Header {
+	return r.header
+}

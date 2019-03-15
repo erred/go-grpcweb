@@ -8,7 +8,9 @@ grpc-web handler for go
 
 ## About
 
-I wanted to work with grpc-web without having to run (another) proxy (envoy)
+Translates between grpc-web requests and grpc responses
+
+Simply wrap your grpc server with this handler
 
 ## Usage
 
@@ -23,10 +25,11 @@ go get github.com/seankhliao/go-grpcweb
 ```go
 import (
     "net/http"
-    "google.golang.org/grpc"
-    pb "your-proto-definition"
 
+    "google.golang.org/grpc"
     grpcweb "github.com/seankhliao/go-grpcweb"
+
+    pb "your-proto-definition"
 )
 
 func main(){
@@ -43,7 +46,7 @@ func main(){
 ## Todo
 
 - [ ] Write tests
-- [ ] Write better docs
+- [ ] Write better docs (h2c)
 - [ ] Improve error handling
 - [ ] investigate closing http2 streams
 - [x] Cleanup header parsing / constants

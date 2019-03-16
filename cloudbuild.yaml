@@ -1,11 +1,8 @@
 steps:
-  - id: test
-    name: "golang"
-    entrypoint: "go"
+  - name: "golang:alpine"
+    entrypoint: "sh"
     args:
-      - "test"
-  - id: build
-    name: "golang"
-    entrypoint: "go"
-    args:
-      - "build"
+      - "-c"
+      - |
+        go test && \
+        go build

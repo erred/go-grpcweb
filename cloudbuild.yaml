@@ -1,5 +1,7 @@
 steps:
   - name: "golang:alpine"
+    env:
+      - CGO_ENABLED=0
     entrypoint: "sh"
     args:
       - "-c"

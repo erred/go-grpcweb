@@ -36,19 +36,38 @@ func main(){
     svr := grpc.NewServer()
     hw.RegisterGreeterServer(svr, &Server{})
 
+    // wrap grpc handler in grpc-web handler
     handler := grpcweb.New(svr)
+    http.ListenAndServe(":8080", handler)
 
-    http.Handle("/", handler)
-    http.ListenAndServe(":8080", nil)
+    // OPTIONAL:
+    // handle cors if necessary:
+    //  Headers:
+    //    Access-Control-Allow-Origin
+    //    Access-Control-Allow-Headers
+    //  Request:
+    //    method: OPTIONS
+    //    response: 200
+    h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      w.Header().Set("access-control-allow-origin", "*")
+      w.Header().Set("Access-Control-Allow-Headers", "*")
+      if r.Method == "OPTIONS" {
+        w.WriteHeader(http.StatusOK)
+        return
+      }
+      handler.ServeHTTP(w, r)
+    })
+    http.ListenAndServe(":8080", h)
+
 }
 ```
 
 ## Todo
 
 - [ ] Write tests
-- [ ] Write better docs (h2c)
 - [ ] Improve error handling
 - [ ] investigate closing http2 streams
+- [x] Write better docs (h2c)
 - [x] Cleanup header parsing / constants
 
 ## Links

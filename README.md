@@ -1,3 +1,6 @@
+# depreciated
+## in favor of [improbable-eng/grpc-web](https://github.com/improbable-eng/grpc-web/tree/master/go/grpcweb)
+
 # go-grpcweb
 
 grpc-web handler for go
